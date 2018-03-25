@@ -122,7 +122,8 @@ class FlowNetC(nn.Module):
 
         flow2 = self.predict_flow2(concat2)
 
-        if self.training:
-            return flow2,flow3,flow4,flow5,flow6
-        else:
-            return flow2,
+        # if self.training:
+        #     return flow2,flow3,flow4,flow5,flow6
+        # else:
+        #     return flow2,
+        return out_conv6 # (1 , 1024, 6, 8)
