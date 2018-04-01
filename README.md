@@ -1,3 +1,5 @@
+>non-official PyTorch implementation of VINet
+
 (Whole project are still under construction.)
 
 Progress: Finish concatenate FlowNetC with GT
