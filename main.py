@@ -1,4 +1,4 @@
-
+# python2.7
 import torch 
 import torch.nn as nn
 from torch.autograd import Variable
@@ -20,9 +20,7 @@ from PIL import Image
 
 import csv
 
-#dset = MyDataset('/notebooks/data/euroc/', V1_01_easy)
-#loader = torch.utils.DataLoader(dset, num_workers=8)  
-#https://discuss.pytorch.org/t/loading-huge-data-functionality/346/2
+
 
 class MyDataset:
     
@@ -57,7 +55,6 @@ class MyDataset:
         
         X = np.array([x_data_np_1, x_data_np_2])
 
-        #X = np.rollaxis(X,3,1)
         X = np.expand_dims(X, axis=0)   #(1, 2, 3, 384, 512)
 
         X = Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda())    
@@ -138,6 +135,7 @@ def train(epoch, model, optimizer):
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 i, i , len(mydataset),
                 100. * i / len(mydataset), loss.data[0]))    
+            
     
 def main():
     EPOCH = 10
@@ -145,27 +143,9 @@ def main():
     model = Vinet()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     
-    #dset = MyDataset('/notebooks/data/euroc/', 'V1_01_easy')
-    #train_loader = torch.utils.data.DataLoader(dset, num_workers=8)  
     train(EPOCH, model, optimizer)
           
-    ## Load weights
-#     model = Vinet()
-#     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-    
-#     train(EPOCH, model, optimizer)
-    
 
-#     x_data_np_1 = np.array(Image.open("/notebooks/data/frame_0001.png"))
-#     x_data_np_2 = np.array(Image.open("/notebooks/data/frame_0002.png"))
-
-#     X = np.array([x_data_np_1, x_data_np_2])
-#     X = np.rollaxis(X,3,1)
-#     X = np.expand_dims(X, axis=0)   #(1, 2, 3, 384, 512)
-#     X = Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda())       
-#     output = model(X)
-
-        
 
     
         
