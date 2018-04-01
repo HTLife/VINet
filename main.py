@@ -1,8 +1,10 @@
 
-import torch as th
+import torch 
 import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
+import torch.utils.data
+import torch.optim as optim
 
 import os
 from utils import tools
@@ -16,27 +18,57 @@ import flowlib
 
 from PIL import Image
 
+import csv
 
-# class Vinet(nn.Module):
+#dset = MyDataset('/notebooks/data/euroc/', V1_01_easy)
+#loader = torch.utils.DataLoader(dset, num_workers=8)  
+#https://discuss.pytorch.org/t/loading-huge-data-functionality/346/2
 
-#     # you can also accept arguments in your model constructor
-#     def __init__(self, input_size, hidden_size, output_size):
-#         super(Vinet, self).__init__()
-#         self.hidden_size = hidden_size
-        
-#         self.lstm = nn.LSTMCell(input_size, hidden_size)
-        
-
-#     def forward(self, data, last_hidden):
-#         input = th.cat((data, last_hidden), 1)
-#         hidden = self.i2h(input)
-#         output = self.h2o(hidden)
-#         return hidden, output
-
-class Combine(nn.Module):
+class MyDataset:
+    
     def __init__(self):
-        super(Combine, self).__init__()
-        #self.cnn = CNN()
+        self.base_dir = '/notebooks/data/euroc/'
+        self.sequence = 'V1_01_easy'
+        self.base_path_img = self.base_dir + self.sequence + '/cam0/data/'
+        self.data_files = os.listdir(self.base_dir + self.sequence + '/cam0/data/')
+        self.data_files.sort()
+        
+        self.trajectory_abs = []  #abosolute camera pose
+        with open(self.base_dir + self.sequence + '/vicon0/sampled_relative.csv') as csvfile:
+            spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
+            for row in spamreader:
+#                 parsed = [int(row[0]), float(row[1]), float(row[2]), float(row[3]), 
+#                           float(row[4]), float(row[5]), float(row[6]), float(row[7])]
+                parsed = [float(row[1]), float(row[2]), float(row[3]), 
+                          float(row[4]), float(row[5]), float(row[6]), float(row[7])]
+                self.trajectory_abs.append(parsed)
+        self.trajectory_abs = np.array(self.trajectory_abs)
+                
+    def __len__(self):
+        return len(self.data_files)
+    
+    def load_img(self, idx):
+        x_data_np_1 = np.array(Image.open(self.base_path_img + self.data_files[idx]))
+        x_data_np_2 = np.array(Image.open(self.base_path_img + self.data_files[idx+1]))
+        
+        
+        x_data_np_1 = np.array([x_data_np_1, x_data_np_1, x_data_np_1])
+        x_data_np_2 = np.array([x_data_np_2, x_data_np_2, x_data_np_2])
+        
+        X = np.array([x_data_np_1, x_data_np_2])
+
+        #X = np.rollaxis(X,3,1)
+        X = np.expand_dims(X, axis=0)   #(1, 2, 3, 384, 512)
+
+        X = Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda())    
+        Y = Variable(torch.from_numpy(self.trajectory_abs[idx+1]).type(torch.FloatTensor).cuda())
+        return X, Y
+
+    
+    
+class Vinet(nn.Module):
+    def __init__(self):
+        super(Vinet, self).__init__()
         self.rnn = nn.LSTM(
             input_size=24576, 
             hidden_size=64, 
@@ -44,22 +76,17 @@ class Combine(nn.Module):
             batch_first=True)
         self.rnn.cuda()
         
-        self.linear = nn.Linear(64,6)
+        self.linear = nn.Linear(64,7)
         self.linear.cuda()
-        
-        checkpoint_path = '/notebooks/data/model/FlowNet2-C_checkpoint.pth.tar'
-        if os.path.isfile(checkpoint_path):
-            #block.log("Loading checkpoint '{}'".format(checkpoint_path))
-            #checkpoint = th.load(checkpoint_path)
-
-            checkpoint = th.load(checkpoint_path,\
+        checkpoint = None
+        checkpoint_pytorch = '/notebooks/data/model/FlowNet2-C_checkpoint.pth.tar'
+        if os.path.isfile(checkpoint_pytorch):
+            checkpoint = torch.load(checkpoint_pytorch,\
                                 map_location=lambda storage, loc: storage.cuda(0))
-
-            #torch.load('tensors.pt', map_location=lambda storage, loc: storage)
-
             best_err = checkpoint['best_EPE']
-            #model_and_loss.module.model.load_state_dict(checkpoint['state_dict'])
-            #block.log("Loaded checkpoint '{}' (at epoch {})".format(checkpoint_path, checkpoint['epoch']))
+        else:
+            print('No checkpoint')
+
         
         self.flownetc = FlowNetC.FlowNetC(batchNorm=False)
         self.flownetc.load_state_dict(checkpoint['state_dict'])
@@ -74,49 +101,69 @@ class Combine(nn.Module):
         r_out, (h_n, h_c) = self.rnn(r_in)
         r_out2 = self.linear(r_out[-1, -1, :])
         return r_out2
-        
-        #return r_in
     
     
 def model_out_to_flow_png(output):
     out_np = output[0].data.cpu().numpy()
-    print(out_np.shape)
+    #print(out_np.shape)
 
-    #https://github.com/DediGadot/PatchBatch/blob/master/flowlib.py
+    #https://gitorchub.com/DediGadot/PatchBatch/blob/master/flowlib.py
     out_np = np.squeeze(out_np)
-    print(out_np.shape)
+    #print(out_np.shape)
     #out_np = np.swapaxes(out_np,0,2)
     out_np = np.moveaxis(out_np,0, -1)
-    print(out_np.shape)
+    #print(out_np.shape)
 
     im_arr = flowlib.flow_to_image(out_np)
     im = Image.fromarray(im_arr)
     im.save('test.png')
 
-def main():
-    with tools.TimerBlock("Initializing Datasets") as block:
-        ## Load weights
-        model = Combine()
-        #model.training = False
-        #print(model)
-        #x[:,0:3,:,:]
-        #input_size = (6,384,512)  # batch, timestep, ch, width, height
-        
-        #input_size = ( 2, 3, 384, 512)
-        #summary_str = tools.summary(input_size, model)
 
-    
-        x_data_np_1 = np.array(Image.open("/notebooks/data/frame_0001.png"))
-        x_data_np_2 = np.array(Image.open("/notebooks/data/frame_0002.png"))
+def train(epoch, model, optimizer):
+    model.train()
+    mydataset = MyDataset()
+    criterion  = nn.MSELoss()
+    for i in range(len(mydataset)-1):
+        data, target = mydataset.load_img(i)
+        data, target = data.cuda(), target.cuda()
         
-        X = np.array([x_data_np_1, x_data_np_2])
-        X = np.rollaxis(X,3,1)
-        X = np.expand_dims(X, axis=0)
-        #print(X.shape) #(1, 2, 3, 384, 512)
-        X = Variable(th.from_numpy(X).type(th.FloatTensor).cuda())       
-        output = model(X)
-        print(output)
-        #print(len(output))
+        optimizer.zero_grad()
+        output = model(data)
+        
+        loss = criterion(output, target)
+        loss.backward()
+        optimizer.step()
+        
+        if i % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                i, i , len(mydataset),
+                100. * i / len(mydataset), loss.data[0]))    
+    
+def main():
+    EPOCH = 10
+    
+    model = Vinet()
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    
+    #dset = MyDataset('/notebooks/data/euroc/', 'V1_01_easy')
+    #train_loader = torch.utils.data.DataLoader(dset, num_workers=8)  
+    train(EPOCH, model, optimizer)
+          
+    ## Load weights
+#     model = Vinet()
+#     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    
+#     train(EPOCH, model, optimizer)
+    
+
+#     x_data_np_1 = np.array(Image.open("/notebooks/data/frame_0001.png"))
+#     x_data_np_2 = np.array(Image.open("/notebooks/data/frame_0002.png"))
+
+#     X = np.array([x_data_np_1, x_data_np_2])
+#     X = np.rollaxis(X,3,1)
+#     X = np.expand_dims(X, axis=0)   #(1, 2, 3, 384, 512)
+#     X = Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda())       
+#     output = model(X)
 
         
 
@@ -125,3 +172,10 @@ def main():
 
 if __name__ == '__main__':
     main()
+    
+        #model.training = False
+    #print(model)
+    #x[:,0:3,:,:]
+    #input_size = (6,384,512)  # batch, timestep, ch, widtorch, height
+    #input_size = ( 2, 3, 384, 512)
+    #summary_str = tools.summary(input_size, model)
