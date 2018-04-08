@@ -35,22 +35,33 @@ class MyDataset:
         self.data_files = os.listdir(self.base_dir + self.sequence + '/cam0/data/')
         self.data_files.sort()
         
-        self.trajectory_abs = []  #abosolute camera pose
+        self.trajectory_relative = []  #abosolute camera pose
         with open(self.base_dir + self.sequence + '/vicon0/sampled_relative.csv') as csvfile:
             spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
             for row in spamreader:
-#                 parsed = [int(row[0]), float(row[1]), float(row[2]), float(row[3]), 
-#                           float(row[4]), float(row[5]), float(row[6]), float(row[7])]
+                parsed = [float(row[1]), float(row[2]), float(row[3]), 
+                          float(row[4]), float(row[5]), float(row[6]), float(row[7])]
+                self.trajectory_relative.append(parsed)
+                
+        self.trajectory_relative = np.array(self.trajectory_relative)
+        
+        
+        
+        self.trajectory_abs = []  #abosolute camera pose
+        with open(self.base_dir + self.sequence + '/vicon0/sampled.csv') as csvfile:
+            spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
+            for row in spamreader:
                 parsed = [float(row[1]), float(row[2]), float(row[3]), 
                           float(row[4]), float(row[5]), float(row[6]), float(row[7])]
                 self.trajectory_abs.append(parsed)
+                
         self.trajectory_abs = np.array(self.trajectory_abs)
     
     def getTrajectoryAbs(self):
-        return self.trajectory_abs
+        return self.trajectory_relative
     
     def __len__(self):
-        return len(self.trajectory_abs)
+        return len(self.trajectory_relative)
     
     def load_img(self, idx):
         x_data_np_1 = np.array(Image.open(self.base_path_img + self.data_files[idx]))
@@ -65,7 +76,8 @@ class MyDataset:
         X = np.expand_dims(X, axis=0)   #(1, 2, 3, 384, 512)
 
         X = Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda())    
-        Y = Variable(torch.from_numpy(self.trajectory_abs[idx+1]).type(torch.FloatTensor).cuda())
+        Y = Variable(torch.from_numpy(self.trajectory_relative[idx+1]).type(torch.FloatTensor).cuda())
+        
         return X, Y
     
     def load_img_bat(self, idx, batch):
@@ -86,9 +98,11 @@ class MyDataset:
         batch_x = np.array(batch_x)
         
         X = Variable(torch.from_numpy(batch_x).type(torch.FloatTensor).cuda())    
-        #print(self.trajectory_abs[idx+1:idx+1+batch, ...].shape)
-        Y = Variable(torch.from_numpy(self.trajectory_abs[idx+1:idx+1+batch]).type(torch.FloatTensor).cuda())
-        return X, Y
+        #print(self.trajectory_relative[idx+1:idx+1+batch, ...].shape)
+        Y = Variable(torch.from_numpy(self.trajectory_relative[idx+1:idx+1+batch]).type(torch.FloatTensor).cuda())
+        Y2 = Variable(torch.from_numpy(self.trajectory_abs[idx+1:idx+1+batch]).type(torch.FloatTensor).cuda())
+        
+        return X, Y, Y2
 
     
     
@@ -103,7 +117,6 @@ class Vinet(nn.Module):
         self.rnn.cuda()
         
         self.linear = nn.Linear(64, 7)
-#         self.linear = nn.Linear(64,7)#nn.Linear(320,7)
         self.linear.cuda()
         checkpoint = None
         checkpoint_pytorch = '/notebooks/data/model/FlowNet2-C_checkpoint.pth.tar'
@@ -132,11 +145,6 @@ class Vinet(nn.Module):
         r_out, (h_n, h_c) = self.rnn(r_in)
         
         out = self.linear(r_out[:,-1,:])
-        #print(r_out.shape, h_n.shape, h_c.shape)
-        #print(r_out[:,-1,:].shape)
-#         linear_in = r_out[:, -1, :]
-#         linear_out = self.linear(linear_in)
-#         linear_out2 = linear_out.view(self.batch, -1)
 
         return out
     
@@ -161,42 +169,41 @@ def train(epoch, model, optimizer, batch):
     model.train()
 
     mydataset = MyDataset('/notebooks/data/euroc/', 'V1_01_easy')
-    criterion  = nn.MSELoss()
+    #criterion  = nn.MSELoss()
+    criterion  = nn.L1Loss(size_average=False)
     
     start = 5
     end = len(mydataset)-batch
     batch_num = (end - start) / batch
     startT = time.time() 
     with tools.TimerBlock("Start training") as block:
-        for i in range(start, end, batch):#len(mydataset)-1):
-            data, target = mydataset.load_img_bat(i, batch)
-            data, target = data.cuda(), target.cuda()
+        for k in range(epoch):
+            for i in range(start, end, batch):#len(mydataset)-1):
+                data, target, target2 = mydataset.load_img_bat(i, batch)
+                data, target, target2 = data.cuda(), target.cuda(), target2.cuda()
 
-            optimizer.zero_grad()
-            output = model(data)
-            #print('output', output.shape)
-            #print('target', target.shape)
-            loss = criterion(output, target)
-            loss.backward()
-            optimizer.step()
+                optimizer.zero_grad()
+                output = model(data)
+                #print('output', output.shape)
+                #print('target', target.shape)
+                loss = criterion(output, target) + criterion(output, target2)
 
-            if i % 1 == 0:
-                avgTime = block.avg()
-                remainingTime = int((batch_num -  (i/batch)) * avgTime)
-                rTime_str = "{:02d}:{:02d}:{:02d}".format(remainingTime/60//60, remainingTime//60%60, remainingTime%60)
-                #rTime_str = str(remainingTime/60//60) + ':' + str(remainingTime//60%60) + ':' + str(remainingTime%60)
-                
-                #print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}, Time remaining: {:.4f}'.format(
-                #    i/batch, i/batch , batch_num,
-                #    100. * i/batch / batch_num, loss.data[0], avgTime))  
-                block.log('Train Epoch: {}\t[{}/{} ({:.0f}%)]\tLoss: {:.6f}, TimeAvg: {:.4f}, Remaining: {}'.format(
-                    i/batch, i/batch , batch_num,
-                    100. * i/batch / batch_num, loss.data[0], avgTime, rTime_str))
-            if i % 500 == 0 and i != 0:
-                check_str = 'checkpoint_{}.pt'.format(i/batch)
-                #torch.save(model, check_str)
-                #model.save_state_dict(check_str)
-                torch.save(model.state_dict(), check_str)
+                loss.backward()
+                optimizer.step()
+
+                if i % 1 == 0:
+                    avgTime = block.avg()
+                    remainingTime = int((batch_num*epoch -  (i/batch + batch_num*k)) * avgTime)
+                    rTime_str = "{:02d}:{:02d}:{:02d}".format(remainingTime/60//60, remainingTime//60%60, remainingTime%60)
+                    #[16.651m] Train Epoch: 574    [574/577 (99%)] Loss: 19.724487, TimeAvg: 1.7407, Remaining: 00:00:05
+
+                    
+                    block.log('Train Epoch: {}\t[{}/{} ({:.0f}%)]\tLoss: {:.6f}, TimeAvg: {:.4f}, Remaining: {}'.format(
+                        k, i/batch , batch_num,
+                        100. * (i/batch + batch_num*k) / (batch_num*epoch), loss.data[0], avgTime, rTime_str))
+#             if i % 500 == 0 and i != 0:
+            check_str = 'checkpoint_{}.pt'.format(k)
+            torch.save(model.state_dict(), check_str)
             
     
     #torch.save(model, 'vinet_v1_01.pt')
@@ -223,8 +230,8 @@ def test():
     ans = []
     #for i in range(len(mydataset)-1):
     for i in range(100):
-        data, target = mydataset.load_img_bat(i, 1)
-        data, target = data.cuda(), target.cuda()
+        data, target, target2 = mydataset.load_img_bat(i, 1)
+        data, target, target2 = data.cuda(), target.cuda(), target2.cuda()
 
         output = model(data)
         
@@ -237,9 +244,9 @@ def test():
         print('{}/{}'.format(str(i+1), str(len(mydataset)-1)) )
     print('err = {}'.format(err/(len(mydataset)-1)))  
     
-    trajectory_abs = mydataset.getTrajectoryAbs()
-    print(trajectory_abs[0])
-    x = trajectory_abs[0].astype(str)
+    trajectory_relative = mydataset.getTrajectoryAbs()
+    print(trajectory_relative[0])
+    x = trajectory_relative[0].astype(str)
     x = ",".join(x)
     
     with open('/notebooks/data/euroc/V2_01_easy/vicon0/sampled_relative_ans.csv', 'w+') as f:
@@ -259,9 +266,9 @@ def main():
     model = Vinet()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     
-    train(EPOCH, model, optimizer, BATCH)
+    #train(EPOCH, model, optimizer, BATCH)
           
-    #test()
+    test()
 
     
         

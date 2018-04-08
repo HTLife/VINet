@@ -1,4 +1,3 @@
-#!/usr/bin/python3
 import os
 import torch
 import torch.utils.ffi

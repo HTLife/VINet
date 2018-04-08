@@ -10,13 +10,6 @@ from datetime import datetime
 import inspect
 import torch
 
-
-## For summary
-import torch as th
-import torch.nn as nn
-from torch.autograd import Variable
-from collections import OrderedDict 
-
 def datestr():
     pacific = timezone('US/Pacific')
     now = datetime.now(pacific)
@@ -30,8 +23,7 @@ def module_to_dict(module, exclude=[]):
 
 class TimerBlock: 
     def __init__(self, title):
-        self.count = 0
-        print("{}".format(title))
+        print(("{}".format(title)))
 
     def __enter__(self):
         self.start = time.clock()
@@ -53,27 +45,18 @@ class TimerBlock:
         if duration > 60:
             duration = duration / 60.
             units = 'm'
-        print("  [{:.3f}{}] {}".format(duration, units, string))
-        
-        self.count += 1
+        print(("  [{:.3f}{}] {}".format(duration, units, string)))
     
     def log2file(self, fid, string):
         fid = open(fid, 'a')
         fid.write("%s\n"%(string))
         fid.close()
-        
-    def avg(self):
-        duration = time.clock() - self.start
-        if self.count == 0:
-            return duration
-        else:
-            return duration / self.count
 
 def add_arguments_for_module(parser, module, argument_for_class, default, skip_params=[], parameter_defaults={}):
     argument_group = parser.add_argument_group(argument_for_class.capitalize())
 
     module_dict = module_to_dict(module)
-    argument_group.add_argument('--' + argument_for_class, type=str, default=default, choices=module_dict.keys())
+    argument_group.add_argument('--' + argument_for_class, type=str, default=default, choices=list(module_dict.keys()))
     
     args, unknown_args = parser.parse_known_args()
     class_obj = module_dict[vars(args)[argument_for_class]]
@@ -86,13 +69,13 @@ def add_arguments_for_module(parser, module, argument_for_class, default, skip_p
     for i, arg in enumerate(args):
         cmd_arg = '{}_{}'.format(argument_for_class, arg)
         if arg not in skip_params + ['self', 'args']:
-            if arg in parameter_defaults.keys():
+            if arg in list(parameter_defaults.keys()):
                 argument_group.add_argument('--{}'.format(cmd_arg), type=type(parameter_defaults[arg]), default=parameter_defaults[arg])
             elif (defaults is not None and i < len(defaults)):
                 argument_group.add_argument('--{}'.format(cmd_arg), type=type(defaults[i]), default=defaults[i])
             else:
-                print("[Warning]: non-default argument '{}' detected on class '{}'. This argument cannot be modified via the command line"
-                        .format(arg, module.__class__.__name__))
+                print(("[Warning]: non-default argument '{}' detected on class '{}'. This argument cannot be modified via the command line"
+                        .format(arg, module.__class__.__name__)))
             # We don't have a good way of dealing with inferring the type of the argument
             # TODO: try creating a custom action and using ast's infer type?
             # else:
@@ -100,13 +83,13 @@ def add_arguments_for_module(parser, module, argument_for_class, default, skip_p
 
 def kwargs_from_args(args, argument_for_class):
     argument_for_class = argument_for_class + '_'
-    return {key[len(argument_for_class):]: value for key, value in vars(args).items() if argument_for_class in key and key != argument_for_class + 'class'}
+    return {key[len(argument_for_class):]: value for key, value in list(vars(args).items()) if argument_for_class in key and key != argument_for_class + 'class'}
 
 def format_dictionary_of_losses(labels, values):
     try:
         string = ', '.join([('{}: {:' + ('.3f' if value >= 0.001 else '.1e') +'}').format(name, value) for name, value in zip(labels, values)])
     except (TypeError, ValueError) as e:
-        print(zip(labels, values))
+        print((list(zip(labels, values))))
         string = '[Log Error] ' + str(e)
 
     return string
@@ -125,7 +108,7 @@ class IteratorTimer():
 
     def __next__(self):
         start = time.time()
-        n = self.iterator.next()
+        n = next(self.iterator)
         self.last_duration = (time.time() - start)
         return n
 
@@ -159,74 +142,3 @@ def save_checkpoint(state, is_best, path, prefix, filename='checkpoint.pth.tar')
     if is_best:
         shutil.copyfile(name, prefix_save + '_model_best.pth.tar')
 
-def summary(input_size, model):
-        def register_hook(module):
-            def hook(module, input, output):
-                class_name = str(module.__class__).split('.')[-1].split("'")[0]
-                module_idx = len(summary)
-
-                m_key = '%s-%i' % (class_name, module_idx+1)
-                summary[m_key] = OrderedDict()
-                summary[m_key]['input_shape'] = list(input[0].size())
-                summary[m_key]['input_shape'][0] = -1
-                summary[m_key]['output_shape'] = list(output.size())
-                summary[m_key]['output_shape'][0] = -1
-
-                params = 0
-                if hasattr(module, 'weight'):
-                    params += th.prod(th.LongTensor(list(module.weight.size())))
-                    if module.weight.requires_grad:
-                        summary[m_key]['trainable'] = True
-                    else:
-                        summary[m_key]['trainable'] = False
-                if hasattr(module, 'bias'):
-                    params +=  th.prod(th.LongTensor(list(module.bias.size())))
-                summary[m_key]['nb_params'] = params
-                
-            if not isinstance(module, nn.Sequential) and \
-               not isinstance(module, nn.ModuleList) and \
-               not (module == model):
-                hooks.append(module.register_forward_hook(hook))
-                
-        dtype = th.cuda.FloatTensor
-        
-        # check if there are multiple inputs to the network
-        if isinstance(input_size[0], (list, tuple)):
-            x = [Variable(th.rand(1,*in_size)).type(dtype) for in_size in input_size]
-        else:
-            x = Variable(th.rand(1,*input_size)).type(dtype)
-            
-            
-        print(x.shape)
-        print(type(x[0]))
-        # create properties
-        summary = OrderedDict()
-        hooks = []
-        # register hook
-        model.apply(register_hook)
-        # make a forward pass
-        model(x)
-        # remove these hooks
-        for h in hooks:
-            h.remove()
-
-        print('----------------------------------------------------------------')
-        line_new = '{:>20}  {:>25} {:>15}'.format('Layer (type)', 'Output Shpae', 'Param #')
-        print(line_new)
-        print('================================================================')
-        total_params = 0
-        trainable_params = 0
-        for layer in summary:
-            ## input_shape, output_shape, trainable, nb_params
-            line_new = '{:>20}  {:>25} {:>15}'.format(layer, summary[layer]['output_shape'], summary[layer]['nb_params'])
-            total_params += summary[layer]['nb_params']
-            if 'trainable' in summary[layer]:
-                if summary[layer]['trainable'] == True:
-                    trainable_params += summary[layer]['nb_params']
-            print(line_new)
-        print('================================================================')
-        print('Total params: ' + str("{:,}".format(total_params)))
-        print('Trainable params: ' + str("{:,}".format(trainable_params)))
-        print('Non-trainable params: ' + str("{:,}".format(total_params - trainable_params)))
-        print('----------------------------------------------------------------')
-        return summary

@@ -1,3 +1,6 @@
 .ipynb_checkpoints/
 *.pyc
 *.pt
+*.swp
+*.so
+*.o
