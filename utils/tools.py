@@ -23,6 +23,7 @@ def module_to_dict(module, exclude=[]):
 
 class TimerBlock: 
     def __init__(self, title):
+        self.count = 0
         print(("{}".format(title)))
 
     def __enter__(self):
@@ -46,12 +47,20 @@ class TimerBlock:
             duration = duration / 60.
             units = 'm'
         print(("  [{:.3f}{}] {}".format(duration, units, string)))
+        self.count += 1
     
     def log2file(self, fid, string):
         fid = open(fid, 'a')
         fid.write("%s\n"%(string))
         fid.close()
 
+    def avg(self):
+        duration = time.clock() - self.start
+        if self.count == 0:
+            return duration
+        else:
+            return duration / self.count
+    
 def add_arguments_for_module(parser, module, argument_for_class, default, skip_params=[], parameter_defaults={}):
     argument_group = parser.add_argument_group(argument_for_class.capitalize())
 

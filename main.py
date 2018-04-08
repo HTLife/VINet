@@ -194,7 +194,7 @@ def train(epoch, model, optimizer, batch):
                 if i % 1 == 0:
                     avgTime = block.avg()
                     remainingTime = int((batch_num*epoch -  (i/batch + batch_num*k)) * avgTime)
-                    rTime_str = "{:02d}:{:02d}:{:02d}".format(remainingTime/60//60, remainingTime//60%60, remainingTime%60)
+                    rTime_str = "{:02d}:{:02d}:{:02d}".format(int(remainingTime/60//60), int(remainingTime//60%60), int(remainingTime%60))
                     #[16.651m] Train Epoch: 574    [574/577 (99%)] Loss: 19.724487, TimeAvg: 1.7407, Remaining: 00:00:05
 
                     
@@ -266,9 +266,9 @@ def main():
     model = Vinet()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     
-    #train(EPOCH, model, optimizer, BATCH)
+    train(EPOCH, model, optimizer, BATCH)
           
-    test()
+    #test()
 
     
         
