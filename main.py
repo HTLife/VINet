@@ -27,64 +27,65 @@ import time
 class MyDataset:
     
     def __init__(self, base_dir, sequence):
-        #self.base_dir = '/notebooks/data/euroc/'
-        #self.sequence = 'V1_01_easy'
         self.base_dir = base_dir
         self.sequence = sequence
         self.base_path_img = self.base_dir + self.sequence + '/cam0/data/'
+        
+        
         self.data_files = os.listdir(self.base_dir + self.sequence + '/cam0/data/')
         self.data_files.sort()
         
-        self.trajectory_relative = []  #abosolute camera pose
-        with open(self.base_dir + self.sequence + '/vicon0/sampled_relative.csv') as csvfile:
+        ## relative camera pose
+        self.trajectory_relative = self.readTrajectoryFile('/vicon0/sampled_relative.csv')
+        ## abosolute camera pose (global)
+        self.trajectory_abs = self.readTrajectoryFile('/vicon0/sampled.csv')
+        
+        ## imu
+        self.imu = self.readIMU_File('/imu0/data.csv')
+        
+        self.imu_seq_len = 5
+    
+    def readTrajectoryFile(self, path):
+        traj = []
+        with open(self.base_dir + self.sequence + path) as csvfile:
             spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
             for row in spamreader:
                 parsed = [float(row[1]), float(row[2]), float(row[3]), 
                           float(row[4]), float(row[5]), float(row[6]), float(row[7])]
-                self.trajectory_relative.append(parsed)
+                traj.append(parsed)
                 
-        self.trajectory_relative = np.array(self.trajectory_relative)
-        
-        
-        
-        self.trajectory_abs = []  #abosolute camera pose
-        with open(self.base_dir + self.sequence + '/vicon0/sampled.csv') as csvfile:
+        return np.array(traj)
+    
+    def readIMU_File(self, path):
+        imu = []
+        count = 0
+        with open(self.base_dir + self.sequence + path) as csvfile:
             spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
             for row in spamreader:
+                if count == 0:
+                    count += 1
+                    continue
                 parsed = [float(row[1]), float(row[2]), float(row[3]), 
-                          float(row[4]), float(row[5]), float(row[6]), float(row[7])]
-                self.trajectory_abs.append(parsed)
+                          float(row[4]), float(row[5]), float(row[6])]
+                imu.append(parsed)
                 
-        self.trajectory_abs = np.array(self.trajectory_abs)
+        return np.array(imu)
     
     def getTrajectoryAbs(self):
         return self.trajectory_relative
     
+    def getIMU(self):
+        return self.imu
+    
     def __len__(self):
         return len(self.trajectory_relative)
     
-    def load_img(self, idx):
-        x_data_np_1 = np.array(Image.open(self.base_path_img + self.data_files[idx]))
-        x_data_np_2 = np.array(Image.open(self.base_path_img + self.data_files[idx+1]))
-        
-        
-        x_data_np_1 = np.array([x_data_np_1, x_data_np_1, x_data_np_1])
-        x_data_np_2 = np.array([x_data_np_2, x_data_np_2, x_data_np_2])
-        
-        X = np.array([x_data_np_1, x_data_np_2])
-
-        X = np.expand_dims(X, axis=0)   #(1, 2, 3, 384, 512)
-
-        X = Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda())    
-        Y = Variable(torch.from_numpy(self.trajectory_relative[idx+1]).type(torch.FloatTensor).cuda())
-        
-        return X, Y
-    
     def load_img_bat(self, idx, batch):
         batch_x = []
+        batch_imu = []
         for i in range(batch):
-            x_data_np_1 = np.array(Image.open(self.base_path_img + self.data_files[idx]))
-            x_data_np_2 = np.array(Image.open(self.base_path_img + self.data_files[idx+1]))
+            x_data_np_1 = np.array(Image.open(self.base_path_img + self.data_files[idx + i]))
+            x_data_np_2 = np.array(Image.open(self.base_path_img + self.data_files[idx+1 + i]))
 
             ## 3 channels
             x_data_np_1 = np.array([x_data_np_1, x_data_np_1, x_data_np_1])
@@ -93,16 +94,21 @@ class MyDataset:
             X = np.array([x_data_np_1, x_data_np_2])
             batch_x.append(X)
 
-            #X = np.expand_dims(X, axis=0)   #(1, 2, 3, 384, 512)  batch, time, ch, h, w
+            tmp = self.imu[idx-self.imu_seq_len+1 + i:idx+1 + i]
+            
+            batch_imu.append(tmp)
+            
         
         batch_x = np.array(batch_x)
+        batch_imu = np.array(batch_imu)
         
         X = Variable(torch.from_numpy(batch_x).type(torch.FloatTensor).cuda())    
-        #print(self.trajectory_relative[idx+1:idx+1+batch, ...].shape)
+        X2 = Variable(torch.from_numpy(batch_imu).type(torch.FloatTensor).cuda())    
+        
         Y = Variable(torch.from_numpy(self.trajectory_relative[idx+1:idx+1+batch]).type(torch.FloatTensor).cuda())
         Y2 = Variable(torch.from_numpy(self.trajectory_abs[idx+1:idx+1+batch]).type(torch.FloatTensor).cuda())
         
-        return X, Y, Y2
+        return X, X2, Y, Y2
 
     
     
@@ -110,11 +116,18 @@ class Vinet(nn.Module):
     def __init__(self):
         super(Vinet, self).__init__()
         self.rnn = nn.LSTM(
-            input_size=24576, 
+            input_size=49158,#49152,#24576, 
             hidden_size=64,#64, 
-            num_layers=3,
+            num_layers=2,
             batch_first=True)
         self.rnn.cuda()
+        
+        self.rnnIMU = nn.LSTM(
+            input_size=6, 
+            hidden_size=6,
+            num_layers=2,
+            batch_first=True)
+        self.rnnIMU.cuda()
         
         self.linear = nn.Linear(64, 7)
         self.linear.cuda()
@@ -132,18 +145,30 @@ class Vinet(nn.Module):
         self.flownetc.load_state_dict(checkpoint['state_dict'])
         self.flownetc.cuda()
 
-    def forward(self, x):
-        batch_size, timesteps, C, H, W = x.size()
-        #print(x.size())
+    def forward(self, image, imu):
+        batch_size, timesteps, C, H, W = image.size()
         
-        c_in = x.view(batch_size, timesteps * C, H, W)
-        #print(c_in.shape)
+        ## Input1: Feed image pairs to FlownetC
+        c_in = image.view(batch_size, timesteps * C, H, W)
         c_out = self.flownetc(c_in)
-        #print(c_out.shape)
-        r_in = c_out.view(batch_size, timesteps, -1)
-        #print(r_in.shape)
-        r_out, (h_n, h_c) = self.rnn(r_in)
+        #print('c_out', c_out.shape)
         
+        ## Input2: Feed IMU records to LSTM
+        imu_out, (imu_n, imu_c) = self.rnnIMU(imu)
+        imu_out = imu_out[:, -1, :]
+        #print('imu_out', imu_out.shape)
+        imu_out = imu_out.unsqueeze(1)
+        #print('imu_out', imu_out.shape)
+        
+        
+        ## Combine the output of input1 and 2 and feed it to LSTM
+        #r_in = c_out.view(batch_size, timesteps, -1)
+        r_in = c_out.view(batch_size, 1, -1)
+        #print('r_in', r_in.shape)
+        
+        cat_out = torch.cat((r_in, imu_out), 2)
+        #print('cat_out', cat_out.shape)
+        r_out, (h_n, h_c) = self.rnn(cat_out)
         out = self.linear(r_out[:,-1,:])
 
         return out
@@ -151,14 +176,10 @@ class Vinet(nn.Module):
     
 def model_out_to_flow_png(output):
     out_np = output[0].data.cpu().numpy()
-    #print(out_np.shape)
 
     #https://gitorchub.com/DediGadot/PatchBatch/blob/master/flowlib.py
     out_np = np.squeeze(out_np)
-    #print(out_np.shape)
-    #out_np = np.swapaxes(out_np,0,2)
     out_np = np.moveaxis(out_np,0, -1)
-    #print(out_np.shape)
 
     im_arr = flowlib.flow_to_image(out_np)
     im = Image.fromarray(im_arr)
@@ -174,16 +195,16 @@ def train(epoch, model, optimizer, batch):
     
     start = 5
     end = len(mydataset)-batch
-    batch_num = (end - start) / batch
+    batch_num = (end - start) #/ batch
     startT = time.time() 
     with tools.TimerBlock("Start training") as block:
         for k in range(epoch):
-            for i in range(start, end, batch):#len(mydataset)-1):
-                data, target, target2 = mydataset.load_img_bat(i, batch)
-                data, target, target2 = data.cuda(), target.cuda(), target2.cuda()
+            for i in range(start, end):#len(mydataset)-1):
+                data, data_imu, target, target2 = mydataset.load_img_bat(i, batch)
+                data, data_imu, target, target2 = data.cuda(), data_imu.cuda(), target.cuda(), target2.cuda()
 
                 optimizer.zero_grad()
-                output = model(data)
+                output = model(data, data_imu)
                 #print('output', output.shape)
                 #print('target', target.shape)
                 loss = criterion(output, target) + criterion(output, target2)
@@ -193,14 +214,14 @@ def train(epoch, model, optimizer, batch):
 
                 if i % 1 == 0:
                     avgTime = block.avg()
-                    remainingTime = int((batch_num*epoch -  (i/batch + batch_num*k)) * avgTime)
+                    remainingTime = int((batch_num*epoch -  (i + batch_num*k)) * avgTime)
                     rTime_str = "{:02d}:{:02d}:{:02d}".format(int(remainingTime/60//60), int(remainingTime//60%60), int(remainingTime%60))
                     #[16.651m] Train Epoch: 574    [574/577 (99%)] Loss: 19.724487, TimeAvg: 1.7407, Remaining: 00:00:05
 
                     
                     block.log('Train Epoch: {}\t[{}/{} ({:.0f}%)]\tLoss: {:.6f}, TimeAvg: {:.4f}, Remaining: {}'.format(
-                        k, i/batch , batch_num,
-                        100. * (i/batch + batch_num*k) / (batch_num*epoch), loss.data[0], avgTime, rTime_str))
+                        k, i , batch_num,
+                        100. * (i + batch_num*k) / (batch_num*epoch), loss.data[0], avgTime, rTime_str))
 #             if i % 500 == 0 and i != 0:
             check_str = 'checkpoint_{}.pt'.format(k)
             torch.save(model.state_dict(), check_str)
@@ -261,7 +282,7 @@ def test():
             f.write(tmpStr + '\n')      
     
 def main():
-    EPOCH = 10
+    EPOCH = 1
     BATCH = 5
     model = Vinet()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
