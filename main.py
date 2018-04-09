@@ -117,7 +117,7 @@ class Vinet(nn.Module):
         super(Vinet, self).__init__()
         self.rnn = nn.LSTM(
             input_size=49158,#49152,#24576, 
-            hidden_size=64,#64, 
+            hidden_size=1024,#64, 
             num_layers=2,
             batch_first=True)
         self.rnn.cuda()
@@ -129,8 +129,15 @@ class Vinet(nn.Module):
             batch_first=True)
         self.rnnIMU.cuda()
         
-        self.linear = nn.Linear(64, 7)
-        self.linear.cuda()
+        self.linear1 = nn.Linear(1024, 512)
+        self.linear2 = nn.Linear(512, 128)
+        self.linear3 = nn.Linear(128, 7)
+        self.linear1.cuda()
+        self.linear2.cuda()
+        self.linear3.cuda()
+        
+        
+        
         checkpoint = None
         checkpoint_pytorch = '/notebooks/data/model/FlowNet2-C_checkpoint.pth.tar'
         if os.path.isfile(checkpoint_pytorch):
@@ -169,9 +176,11 @@ class Vinet(nn.Module):
         cat_out = torch.cat((r_in, imu_out), 2)
         #print('cat_out', cat_out.shape)
         r_out, (h_n, h_c) = self.rnn(cat_out)
-        out = self.linear(r_out[:,-1,:])
+        l_out1 = self.linear1(r_out[:,-1,:])
+        l_out2 = self.linear2(l_out1)
+        l_out3 = self.linear3(l_out2)
 
-        return out
+        return l_out3
     
     
 def model_out_to_flow_png(output):
@@ -282,7 +291,7 @@ def test():
             f.write(tmpStr + '\n')      
     
 def main():
-    EPOCH = 1
+    EPOCH = 10
     BATCH = 5
     model = Vinet()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
