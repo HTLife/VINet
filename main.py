@@ -6,12 +6,15 @@ import torch.nn.functional as F
 import torch.utils.data
 import torch.optim as optim
 
+from tensorboardX import SummaryWriter
 
 import os
 from utils import tools
 
 
 import FlowNetC
+
+
 from PIL import Image
 import numpy as np
 
@@ -139,7 +142,8 @@ class Vinet(nn.Module):
         
         
         checkpoint = None
-        checkpoint_pytorch = '/notebooks/data/model/FlowNet2-C_checkpoint.pth.tar'
+        checkpoint_pytorch = '/notebooks/model/FlowNet2-C_checkpoint.pth.tar'
+        #checkpoint_pytorch = '/notebooks/data/model/FlowNet2-SD_checkpoint.pth.tar'
         if os.path.isfile(checkpoint_pytorch):
             checkpoint = torch.load(checkpoint_pytorch,\
                                 map_location=lambda storage, loc: storage.cuda(0))
@@ -148,16 +152,16 @@ class Vinet(nn.Module):
             print('No checkpoint')
 
         
-        self.flownetc = FlowNetC.FlowNetC(batchNorm=False)
-        self.flownetc.load_state_dict(checkpoint['state_dict'])
-        self.flownetc.cuda()
+        self.flownet_c = FlowNetC.FlowNetC(batchNorm=False)
+        self.flownet_c.load_state_dict(checkpoint['state_dict'])
+        self.flownet_c.cuda()
 
     def forward(self, image, imu):
         batch_size, timesteps, C, H, W = image.size()
         
         ## Input1: Feed image pairs to FlownetC
         c_in = image.view(batch_size, timesteps * C, H, W)
-        c_out = self.flownetc(c_in)
+        c_out = self.flownet_c(c_in)
         #print('c_out', c_out.shape)
         
         ## Input2: Feed IMU records to LSTM
@@ -196,9 +200,12 @@ def model_out_to_flow_png(output):
 
 
 def train(epoch, model, optimizer, batch):
+    
+    writer = SummaryWriter()
+    
     model.train()
 
-    mydataset = MyDataset('/notebooks/data/euroc/', 'V1_01_easy')
+    mydataset = MyDataset('/notebooks/EuRoC_modify/', 'V1_01_easy')
     #criterion  = nn.MSELoss()
     criterion  = nn.L1Loss(size_average=False)
     
@@ -214,24 +221,23 @@ def train(epoch, model, optimizer, batch):
 
                 optimizer.zero_grad()
                 output = model(data, data_imu)
-                #print('output', output.shape)
-                #print('target', target.shape)
                 loss = criterion(output, target) + criterion(output, target2)
 
                 loss.backward()
                 optimizer.step()
 
-                if i % 1 == 0:
-                    avgTime = block.avg()
-                    remainingTime = int((batch_num*epoch -  (i + batch_num*k)) * avgTime)
-                    rTime_str = "{:02d}:{:02d}:{:02d}".format(int(remainingTime/60//60), int(remainingTime//60%60), int(remainingTime%60))
-                    #[16.651m] Train Epoch: 574    [574/577 (99%)] Loss: 19.724487, TimeAvg: 1.7407, Remaining: 00:00:05
+                
+                avgTime = block.avg()
+                remainingTime = int((batch_num*epoch -  (i + batch_num*k)) * avgTime)
+                rTime_str = "{:02d}:{:02d}:{:02d}".format(int(remainingTime/60//60), int(remainingTime//60%60), int(remainingTime%60))
 
-                    
-                    block.log('Train Epoch: {}\t[{}/{} ({:.0f}%)]\tLoss: {:.6f}, TimeAvg: {:.4f}, Remaining: {}'.format(
-                        k, i , batch_num,
-                        100. * (i + batch_num*k) / (batch_num*epoch), loss.data[0], avgTime, rTime_str))
-#             if i % 500 == 0 and i != 0:
+                
+                block.log('Train Epoch: {}\t[{}/{} ({:.0f}%)]\tLoss: {:.6f}, TimeAvg: {:.4f}, Remaining: {}'.format(
+                    k, i , batch_num,
+                    100. * (i + batch_num*k) / (batch_num*epoch), loss.data[0], avgTime, rTime_str))
+                
+                writer.add_scalar('loss', loss.data[0], k*batch_num + i)
+                
             check_str = 'checkpoint_{}.pt'.format(k)
             torch.save(model.state_dict(), check_str)
             
@@ -239,9 +245,11 @@ def train(epoch, model, optimizer, batch):
     #torch.save(model, 'vinet_v1_01.pt')
     #model.save_state_dict('vinet_v1_01.pt')
     torch.save(model.state_dict(), 'vinet_v1_01.pt')
+    writer.export_scalars_to_json("./all_scalars.json")
+    writer.close()
 
 def test():
-    checkpoint_pytorch = '/notebooks/data/vinet/vinet_v1_01.pt'
+    checkpoint_pytorch = '/notebooks/vinet/vinet_v1_01.pt'
     if os.path.isfile(checkpoint_pytorch):
         checkpoint = torch.load(checkpoint_pytorch,\
                             map_location=lambda storage, loc: storage.cuda(0))
@@ -254,7 +262,7 @@ def test():
     model.load_state_dict(checkpoint)  
     model.cuda()
     model.eval()
-    mydataset = MyDataset('/notebooks/data/euroc/', 'V2_01_easy')
+    mydataset = MyDataset('/notebooks/EuRoC_modify/', 'V2_01_easy')
     
     err = 0
     ans = []
@@ -279,7 +287,7 @@ def test():
     x = trajectory_relative[0].astype(str)
     x = ",".join(x)
     
-    with open('/notebooks/data/euroc/V2_01_easy/vicon0/sampled_relative_ans.csv', 'w+') as f:
+    with open('/notebooks/EuRoC_modify/V2_01_easy/vicon0/sampled_relative_ans.csv', 'w+') as f:
         tmpStr = x
         f.write(tmpStr + '\n')        
         
@@ -305,10 +313,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    
-        #model.training = False
-    #print(model)
-    #x[:,0:3,:,:]
-    #input_size = (6,384,512)  # batch, timestep, ch, widtorch, height
-    #input_size = ( 2, 3, 384, 512)
-    #summary_str = tools.summary(input_size, model)
