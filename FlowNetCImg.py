@@ -10,10 +10,10 @@ from correlation_package.modules.correlation import Correlation
 from submodules import *
 'Parameter count , 39,175,298 '
 
-class FlowNetC(nn.Module):
+class FlowNetCImg(nn.Module):
     #def __init__(self,args, batchNorm=True, div_flow = 20):
     def __init__(self, batchNorm=True, div_flow = 20):
-        super(FlowNetC,self).__init__()
+        super(FlowNetCImg,self).__init__()
 
         self.batchNorm = batchNorm
         self.div_flow = div_flow
@@ -98,34 +98,34 @@ class FlowNetC(nn.Module):
         out_conv4 = self.conv4_1(self.conv4(out_conv3_1))
 
         out_conv5 = self.conv5_1(self.conv5(out_conv4))
-        out_conv6 = self.conv6(out_conv5)
-#         out_conv6 = self.conv6_1(self.conv6(out_conv5))
+        out_conv6 = self.conv6_1(self.conv6(out_conv5))
 
-#         flow6       = self.predict_flow6(out_conv6)
-#         flow6_up    = self.upsampled_flow6_to_5(flow6)
-#         out_deconv5 = self.deconv5(out_conv6)
+        flow6       = self.predict_flow6(out_conv6)
+        flow6_up    = self.upsampled_flow6_to_5(flow6)
+        out_deconv5 = self.deconv5(out_conv6)
 
-#         concat5 = torch.cat((out_conv5,out_deconv5,flow6_up),1)
+        concat5 = torch.cat((out_conv5,out_deconv5,flow6_up),1)
 
-#         flow5       = self.predict_flow5(concat5)
-#         flow5_up    = self.upsampled_flow5_to_4(flow5)
-#         out_deconv4 = self.deconv4(concat5)
-#         concat4 = torch.cat((out_conv4,out_deconv4,flow5_up),1)
+        flow5       = self.predict_flow5(concat5)
+        flow5_up    = self.upsampled_flow5_to_4(flow5)
+        out_deconv4 = self.deconv4(concat5)
+        concat4 = torch.cat((out_conv4,out_deconv4,flow5_up),1)
 
-#         flow4       = self.predict_flow4(concat4)
-#         flow4_up    = self.upsampled_flow4_to_3(flow4)
-#         out_deconv3 = self.deconv3(concat4)
-#         concat3 = torch.cat((out_conv3_1,out_deconv3,flow4_up),1)
+        flow4       = self.predict_flow4(concat4)
+        flow4_up    = self.upsampled_flow4_to_3(flow4)
+        out_deconv3 = self.deconv3(concat4)
+        concat3 = torch.cat((out_conv3_1,out_deconv3,flow4_up),1)
 
-#         flow3       = self.predict_flow3(concat3)
-#         flow3_up    = self.upsampled_flow3_to_2(flow3)
-#         out_deconv2 = self.deconv2(concat3)
-#         concat2 = torch.cat((out_conv2a,out_deconv2,flow3_up),1)
+        flow3       = self.predict_flow3(concat3)
+        flow3_up    = self.upsampled_flow3_to_2(flow3)
+        out_deconv2 = self.deconv2(concat3)
+        concat2 = torch.cat((out_conv2a,out_deconv2,flow3_up),1)
 
-#         flow2 = self.predict_flow2(concat2)
+        flow2 = self.predict_flow2(concat2)
 
         #if self.training:
         #    return flow2,flow3,flow4,flow5,flow6
         #else:
         #    return flow2,
-        return out_conv6 # (1 , 1024, 6, 8)
+        #return out_conv6 # (1 , 1024, 6, 8)
+        return flow2

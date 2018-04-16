@@ -4,3 +4,7 @@
 *.swp
 *.so
 *.o
+*.json
+*.flo
+runs/
+
