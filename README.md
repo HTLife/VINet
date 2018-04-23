@@ -2,9 +2,26 @@
 
 (Whole project are still under construction.)
 
-Progress: Finish concatenate FlowNetC with GT
+Waiting for implement: Adjust hyper-parameters
 
-Waiting for implement: LSTM IMU down-sampling
+
+
+# Installation
+
+It's recommand to use docker image to run this project.
+[Docker image installation guide](https://github.com/HTLife/VINet/wiki/Installation-Guide)
+
+# Training
+Log into container
+```bash
+sudo docker exec -it vinet bash
+cd /notebooks/vinet
+```
+
+Execute main.py by
+```bash
+python3 main.py
+```
 
 
 
