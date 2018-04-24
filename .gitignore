@@ -1,7 +1,14 @@
 .ipynb_checkpoints/
+runs/
+
+all_scalars.json
+
 *.pyc
 *.pt
 *.swp
 *.so
 *.o
-runs/
+
+
+
+

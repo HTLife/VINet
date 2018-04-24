@@ -10,7 +10,7 @@ from tensorboardX import SummaryWriter
 
 import os
 from utils import tools
-
+from utils import se3qua
 
 import FlowNetC
 
@@ -39,7 +39,8 @@ class MyDataset:
         self.data_files.sort()
         
         ## relative camera pose
-        self.trajectory_relative = self.readTrajectoryFile('/vicon0/sampled_relative.csv')
+        self.trajectory_relative = self.read_R6TrajFile('/vicon0/sampled_relative.csv')
+        
         ## abosolute camera pose (global)
         self.trajectory_abs = self.readTrajectoryFile('/vicon0/sampled.csv')
         
@@ -55,6 +56,17 @@ class MyDataset:
             for row in spamreader:
                 parsed = [float(row[1]), float(row[2]), float(row[3]), 
                           float(row[4]), float(row[5]), float(row[6]), float(row[7])]
+                traj.append(parsed)
+                
+        return np.array(traj)
+    
+    def read_R6TrajFile(self, path):
+        traj = []
+        with open(self.base_dir + self.sequence + path) as csvfile:
+            spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
+            for row in spamreader:
+                parsed = [float(row[1]), float(row[2]), float(row[3]), 
+                          float(row[4]), float(row[5]), float(row[6])]
                 traj.append(parsed)
                 
         return np.array(traj)
@@ -134,7 +146,7 @@ class Vinet(nn.Module):
         
         self.linear1 = nn.Linear(1024, 512)
         self.linear2 = nn.Linear(512, 128)
-        self.linear3 = nn.Linear(128, 7)
+        self.linear3 = nn.Linear(128, 6)
         self.linear1.cuda()
         self.linear2.cuda()
         self.linear3.cuda()
@@ -221,7 +233,7 @@ def train(epoch, model, optimizer, batch):
 
                 optimizer.zero_grad()
                 output = model(data, data_imu)
-                loss = criterion(output, target) + criterion(output, target2)
+                loss = criterion(output, target)# + criterion(output, target2)
 
                 loss.backward()
                 optimizer.step()
@@ -299,7 +311,7 @@ def test():
             f.write(tmpStr + '\n')      
     
 def main():
-    EPOCH = 10
+    EPOCH = 2
     BATCH = 5
     model = Vinet()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
