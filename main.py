@@ -86,8 +86,8 @@ class MyDataset:
                 
         return np.array(imu)
     
-    def getTrajectoryAbs(self):
-        return self.trajectory_relative
+    def getTrajectoryAbs(self, idx):
+        return self.trajectory_abs[idx]
     
     def getIMU(self):
         return self.imu
@@ -131,7 +131,7 @@ class Vinet(nn.Module):
     def __init__(self):
         super(Vinet, self).__init__()
         self.rnn = nn.LSTM(
-            input_size=49158,#49152,#24576, 
+            input_size=49165,#49152,#24576, 
             hidden_size=1024,#64, 
             num_layers=2,
             batch_first=True)
@@ -168,7 +168,7 @@ class Vinet(nn.Module):
         self.flownet_c.load_state_dict(checkpoint['state_dict'])
         self.flownet_c.cuda()
 
-    def forward(self, image, imu):
+    def forward(self, image, imu, xyzQ):
         batch_size, timesteps, C, H, W = image.size()
         
         ## Input1: Feed image pairs to FlownetC
@@ -189,8 +189,10 @@ class Vinet(nn.Module):
         r_in = c_out.view(batch_size, 1, -1)
         #print('r_in', r_in.shape)
         
-        cat_out = torch.cat((r_in, imu_out), 2)
-        #print('cat_out', cat_out.shape)
+
+        cat_out = torch.cat((r_in, imu_out), 2)#1 1 49158
+        cat_out = torch.cat((cat_out, xyzQ), 2)#1 1 49165
+        
         r_out, (h_n, h_c) = self.rnn(cat_out)
         l_out1 = self.linear1(r_out[:,-1,:])
         l_out2 = self.linear2(l_out1)
@@ -225,6 +227,7 @@ def train(epoch, model, optimizer, batch):
     end = len(mydataset)-batch
     batch_num = (end - start) #/ batch
     startT = time.time() 
+    abs_traj = None
     with tools.TimerBlock("Start training") as block:
         for k in range(epoch):
             for i in range(start, end):#len(mydataset)-1):
@@ -232,7 +235,18 @@ def train(epoch, model, optimizer, batch):
                 data, data_imu, target, target2 = data.cuda(), data_imu.cuda(), target.cuda(), target2.cuda()
 
                 optimizer.zero_grad()
-                output = model(data, data_imu)
+                
+                if i == start:
+                    ## load first SE3 pose xyzQuaternion
+                    abs_traj = mydataset.getTrajectoryAbs(start)
+                    abs_traj = np.expand_dims(abs_traj, axis=0)
+                    abs_traj = np.expand_dims(abs_traj, axis=0)
+                    abs_traj = Variable(torch.from_numpy(abs_traj).type(torch.FloatTensor).cuda()) 
+                
+                output = model(data, data_imu, abs_traj)
+                
+                
+                
                 loss = criterion(output, target)# + criterion(output, target2)
 
                 loss.backward()
@@ -249,6 +263,14 @@ def train(epoch, model, optimizer, batch):
                     100. * (i + batch_num*k) / (batch_num*epoch), loss.data[0], avgTime, rTime_str))
                 
                 writer.add_scalar('loss', loss.data[0], k*batch_num + i)
+                
+                abs_traj = abs_traj.data.cpu().numpy()[0]
+                numarr = output.data.cpu().numpy()
+                
+                abs_traj = se3qua.accu(abs_traj, numarr)
+                abs_traj = np.expand_dims(abs_traj, axis=0)
+                abs_traj = np.expand_dims(abs_traj, axis=0)
+                abs_traj = Variable(torch.from_numpy(abs_traj).type(torch.FloatTensor).cuda()) 
                 
             check_str = 'checkpoint_{}.pt'.format(k)
             torch.save(model.state_dict(), check_str)
@@ -311,8 +333,8 @@ def test():
             f.write(tmpStr + '\n')      
     
 def main():
-    EPOCH = 2
-    BATCH = 5
+    EPOCH = 10
+    BATCH = 1
     model = Vinet()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     

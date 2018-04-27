@@ -11,6 +11,7 @@ from sophus import *
 import numpy as np
 from sympy import *
 
+from pyquaternion import Quaternion as Qua
 
 ## xyz quaternion ==> se(3)
 def normalize(ww,wx,wy,wz):# make first number positive
@@ -31,7 +32,6 @@ def normalize(ww,wx,wy,wz):# make first number positive
         wz = wz * -1
     return ww, wx, wy, wz  
     
-
 
 def xyzQuaternion2se3_(arr):
     x,y,z,ww,wx,wy,wz = arr[0], arr[1], arr[2], arr[3], arr[4], arr[5], arr[6]
@@ -64,10 +64,40 @@ def SE3toXYZQuaternion(matrix):
 
     q = np.array(matrix[0:3,0:3]).astype(float)
     
-    q8d = Quaternion(matrix=q)
+    if not np.allclose(np.dot(q, q.conj().transpose()), np.eye(3)):
+        print(q)
+    
+    q8d = Qua(matrix=q)
     r = np.array([q8d.real]).astype(float)
     v = np.array(q8d.imaginary).astype(float)
     
     q_con = np.concatenate([trans, r, v])
     
     return q_con
+
+def accu(lastxyzQuaternion, new_se3r6):
+    """
+    lastxyzQuaternion: np.array([x y z ww wx wy wz])
+    new_se3r6: np.array([se3R^6])
+    """
+    new_se3r6 = Matrix(np.transpose(new_se3r6)) #numpy array to sympy matrix
+    M_SE3 = Se3.exp(new_se3r6)
+    M_SE3 = M_SE3.matrix()
+    
+    last = xyzQ2se3(lastxyzQuaternion)
+    last = Matrix(np.transpose(last))
+    M_SE3_last = Se3.exp(last)
+    M_SE3_last = M_SE3_last.matrix()
+    
+    accu = M_SE3_last * M_SE3
+    xyzq = SE3toXYZQuaternion(accu)
+    
+    return xyzq
+    
+    
+    
+    
+    
+    
+    
+    
