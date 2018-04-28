@@ -65,8 +65,8 @@ def SE3toXYZQuaternion(matrix):
 
     q = np.array(matrix[0:3,0:3]).astype(float)
     
-    if not np.allclose(np.dot(q, q.conj().transpose()), np.eye(3)):
-        print(q)
+#     if not np.allclose(np.dot(q, q.conj().transpose()), np.eye(3)):
+#         print(q)
     
     q8d = Qua(matrix=q)
     r = np.array([q8d.real]).astype(float)

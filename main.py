@@ -113,9 +113,6 @@ class MyDataset:
             batch_x.append(X)
 
             tmp = np.array(self.imu[idx-self.imu_seq_len+1 + i:idx+1 + i])
-            print(tmp.shape)
-            print(idx-self.imu_seq_len+1 + i)
-            print(idx+1 + i)
             batch_imu.append(tmp)
             
         
@@ -125,7 +122,10 @@ class MyDataset:
         X = Variable(torch.from_numpy(batch_x).type(torch.FloatTensor).cuda())    
         X2 = Variable(torch.from_numpy(batch_imu).type(torch.FloatTensor).cuda())    
         
+        ## F2F gt
         Y = Variable(torch.from_numpy(self.trajectory_relative[idx+1:idx+1+batch]).type(torch.FloatTensor).cuda())
+        
+        ## global pose gt
         Y2 = Variable(torch.from_numpy(self.trajectory_abs[idx+1:idx+1+batch]).type(torch.FloatTensor).cuda())
         
         return X, X2, Y, Y2
@@ -218,7 +218,12 @@ def model_out_to_flow_png(output):
     im.save('test.png')
 
 
-def train(epoch, model, optimizer, batch):
+def train():
+    epoch = 10
+    batch = 1
+    model = Vinet()
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    #optimizer = optim.Adam(model.parameters(), lr = 0.001)
     
     writer = SummaryWriter()
     
@@ -233,34 +238,48 @@ def train(epoch, model, optimizer, batch):
     batch_num = (end - start) #/ batch
     startT = time.time() 
     abs_traj = None
+    
     with tools.TimerBlock("Start training") as block:
         for k in range(epoch):
             for i in range(start, end):#len(mydataset)-1):
-                data, data_imu, target, target2 = mydataset.load_img_bat(i, batch)
-                data, data_imu, target, target2 = data.cuda(), data_imu.cuda(), target.cuda(), target2.cuda()
+                data, data_imu, target_f2f, target_global = mydataset.load_img_bat(i, batch)
+                data, data_imu, target_f2f, target_global = \
+                    data.cuda(), data_imu.cuda(), target_f2f.cuda(), target_global.cuda()
 
                 optimizer.zero_grad()
                 
                 if i == start:
                     ## load first SE3 pose xyzQuaternion
                     abs_traj = mydataset.getTrajectoryAbs(start)
-                    abs_traj = np.expand_dims(abs_traj, axis=0)
-                    abs_traj = np.expand_dims(abs_traj, axis=0)
-                    abs_traj = Variable(torch.from_numpy(abs_traj).type(torch.FloatTensor).cuda()) 
+                    
+                    abs_traj_input = np.expand_dims(abs_traj, axis=0)
+                    abs_traj_input = np.expand_dims(abs_traj_input, axis=0)
+                    abs_traj_input = Variable(torch.from_numpy(abs_traj_input).type(torch.FloatTensor).cuda()) 
                 
-                output = model(data, data_imu, abs_traj)
+                ## Forward
+                output = model(data, data_imu, abs_traj_input)
                 
+                ## Accumulate pose
+                numarr = output.data.cpu().numpy()
                 
+                abs_traj = se3qua.accu(abs_traj, numarr)
                 
-                loss = criterion(output, target)# + criterion(output, target2)
+                abs_traj_input = np.expand_dims(abs_traj, axis=0)
+                abs_traj_input = np.expand_dims(abs_traj_input, axis=0)
+                abs_traj_input = Variable(torch.from_numpy(abs_traj_input).type(torch.FloatTensor).cuda()) 
+                
+                ## (F2F loss) + (Global pose loss)
+                ## Global pose: Full concatenated pose relative to the start of the sequence
+                loss = criterion(output, target_f2f) + criterion(abs_traj_input, target_global)
 
                 loss.backward()
                 optimizer.step()
 
-                
                 avgTime = block.avg()
                 remainingTime = int((batch_num*epoch -  (i + batch_num*k)) * avgTime)
-                rTime_str = "{:02d}:{:02d}:{:02d}".format(int(remainingTime/60//60), int(remainingTime//60%60), int(remainingTime%60))
+                rTime_str = "{:02d}:{:02d}:{:02d}".format(int(remainingTime/60//60), 
+                                                          int(remainingTime//60%60), 
+                                                          int(remainingTime%60))
 
                 
                 block.log('Train Epoch: {}\t[{}/{} ({:.0f}%)]\tLoss: {:.6f}, TimeAvg: {:.4f}, Remaining: {}'.format(
@@ -268,14 +287,9 @@ def train(epoch, model, optimizer, batch):
                     100. * (i + batch_num*k) / (batch_num*epoch), loss.data[0], avgTime, rTime_str))
                 
                 writer.add_scalar('loss', loss.data[0], k*batch_num + i)
+
                 
-                abs_traj = abs_traj.data.cpu().numpy()[0]
-                numarr = output.data.cpu().numpy()
                 
-                abs_traj = se3qua.accu(abs_traj, numarr)
-                abs_traj = np.expand_dims(abs_traj, axis=0)
-                abs_traj = np.expand_dims(abs_traj, axis=0)
-                abs_traj = Variable(torch.from_numpy(abs_traj).type(torch.FloatTensor).cuda()) 
                 
             check_str = 'checkpoint_{}.pt'.format(k)
             torch.save(model.state_dict(), check_str)
@@ -303,6 +317,7 @@ def test():
     model.eval()
     mydataset = MyDataset('/notebooks/EuRoC_modify/', 'V2_01_easy')
     
+    
     err = 0
     ans = []
     abs_traj = None
@@ -326,13 +341,7 @@ def test():
         output = output.data.cpu().numpy()
 
         xyzq = se3qua.se3R6toxyzQ(output)
-        
-        ans.append(xyzq)
-        print(xyzq)
-        
-        print('{}/{}'.format(str(i+1), str(len(mydataset)-1)) )
-        
-        
+                
         abs_traj = abs_traj.data.cpu().numpy()[0]
         numarr = output
         
@@ -341,12 +350,15 @@ def test():
         abs_traj = np.expand_dims(abs_traj, axis=0)
         abs_traj = Variable(torch.from_numpy(abs_traj).type(torch.FloatTensor).cuda()) 
         
+        ans.append(xyzq)
+        print(xyzq)
+        print('{}/{}'.format(str(i+1), str(len(mydataset)-1)) )
+        
         
     print('err = {}'.format(err/(len(mydataset)-1)))  
-    
-    trajectory_relative = mydataset.getTrajectoryAbsAll()
-    print(trajectory_relative[0])
-    x = trajectory_relative[0].astype(str)
+    trajectoryAbs = mydataset.getTrajectoryAbsAll()
+    print(trajectoryAbs[0])
+    x = trajectoryAbs[0].astype(str)
     x = ",".join(x)
     
     with open('/notebooks/EuRoC_modify/V2_01_easy/vicon0/sampled_relative_ans.csv', 'w+') as f:
@@ -361,14 +373,9 @@ def test():
             f.write(tmpStr + '\n')      
     
 def main():
-    EPOCH = 10
-    BATCH = 1
-    model = Vinet()
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-    
-    #train(EPOCH, model, optimizer, BATCH)
+    train()
           
-    test()
+    #test()
 
     
         
