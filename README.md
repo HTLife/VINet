@@ -2,10 +2,6 @@
 
 (Whole project are still under construction.)
 
-Waiting for implement: Adjust hyper-parameters
-
-
-
 # Installation
 
 It's recommand to use docker image to run this project.
@@ -25,7 +21,7 @@ python3 main.py
 
 # Note
 ## Network detail structure
-![](./doc_fig/NetworkDetail.png)
+<img src="https://user-images.githubusercontent.com/4699179/39375670-bc711a52-4a81-11e8-9be3-18b45924d0de.png" data-canonical-src="https://user-images.githubusercontent.com/4699179/39375670-bc711a52-4a81-11e8-9be3-18b45924d0de.png" width="400" />
 
 
 
