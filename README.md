@@ -23,6 +23,10 @@ Execute main.py by
 python3 main.py
 ```
 
+# Note
+## Network detail structure
+![](./doc_fig/NetworkDetail.png)
+
 
 
 [1] Clark, Ronald, et al. "VINet: Visual-Inertial Odometry as a Sequence-to-Sequence Learning Problem." AAAI. 2017.
