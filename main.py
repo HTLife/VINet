@@ -89,6 +89,9 @@ class MyDataset:
     def getTrajectoryAbs(self, idx):
         return self.trajectory_abs[idx]
     
+    def getTrajectoryAbsAll(self):
+        return self.trajectory_abs
+    
     def getIMU(self):
         return self.imu
     
@@ -109,8 +112,10 @@ class MyDataset:
             X = np.array([x_data_np_1, x_data_np_2])
             batch_x.append(X)
 
-            tmp = self.imu[idx-self.imu_seq_len+1 + i:idx+1 + i]
-            
+            tmp = np.array(self.imu[idx-self.imu_seq_len+1 + i:idx+1 + i])
+            print(tmp.shape)
+            print(idx-self.imu_seq_len+1 + i)
+            print(idx+1 + i)
             batch_imu.append(tmp)
             
         
@@ -300,23 +305,46 @@ def test():
     
     err = 0
     ans = []
+    abs_traj = None
+    start = 5
     #for i in range(len(mydataset)-1):
-    for i in range(100):
-        data, target, target2 = mydataset.load_img_bat(i, 1)
-        data, target, target2 = data.cuda(), target.cuda(), target2.cuda()
+    for i in range(start, 100):
+        data, data_imu, target, target2 = mydataset.load_img_bat(i, 1)
+        data, data_imu, target, target2 = data.cuda(), data_imu.cuda(), target.cuda(), target2.cuda()
 
-        output = model(data)
+        if i == start:
+            ## load first SE3 pose xyzQuaternion
+            abs_traj = mydataset.getTrajectoryAbs(start)
+            abs_traj = np.expand_dims(abs_traj, axis=0)
+            abs_traj = np.expand_dims(abs_traj, axis=0)
+            abs_traj = Variable(torch.from_numpy(abs_traj).type(torch.FloatTensor).cuda()) 
+                    
+        output = model(data, data_imu, abs_traj)
         
         err += float(((target - output) ** 2).mean())
         
         output = output.data.cpu().numpy()
-        ans.append(output[0])
-        print(output[0])
+
+        xyzq = se3qua.se3R6toxyzQ(output)
+        
+        ans.append(xyzq)
+        print(xyzq)
         
         print('{}/{}'.format(str(i+1), str(len(mydataset)-1)) )
+        
+        
+        abs_traj = abs_traj.data.cpu().numpy()[0]
+        numarr = output
+        
+        abs_traj = se3qua.accu(abs_traj, numarr)
+        abs_traj = np.expand_dims(abs_traj, axis=0)
+        abs_traj = np.expand_dims(abs_traj, axis=0)
+        abs_traj = Variable(torch.from_numpy(abs_traj).type(torch.FloatTensor).cuda()) 
+        
+        
     print('err = {}'.format(err/(len(mydataset)-1)))  
     
-    trajectory_relative = mydataset.getTrajectoryAbs()
+    trajectory_relative = mydataset.getTrajectoryAbsAll()
     print(trajectory_relative[0])
     x = trajectory_relative[0].astype(str)
     x = ",".join(x)
@@ -338,9 +366,9 @@ def main():
     model = Vinet()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     
-    train(EPOCH, model, optimizer, BATCH)
+    #train(EPOCH, model, optimizer, BATCH)
           
-    #test()
+    test()
 
     
         

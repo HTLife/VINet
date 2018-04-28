@@ -13,6 +13,7 @@ from sympy import *
 
 from pyquaternion import Quaternion as Qua
 
+
 ## xyz quaternion ==> se(3)
 def normalize(ww,wx,wy,wz):# make first number positive
     q = [ww, wx, wy, wz]
@@ -44,7 +45,7 @@ def xyzQuaternion2se3_(arr):
     R = So3(q)
     
     RT = Se3(R, trans)
-    numpy_vec = np.array(RT.log()).astype(float)
+    numpy_vec = np.array(RT.log()).astype(float)  # SE3 to se3
     return np.concatenate(numpy_vec)
 
 def xyzQ2se3(arr):
@@ -94,9 +95,11 @@ def accu(lastxyzQuaternion, new_se3r6):
     
     return xyzq
     
-    
-    
-    
+def se3R6toxyzQ(se3r6):
+    se3r6 = Matrix(np.transpose(se3r6)) #numpy array to sympy matrix    
+    M_SE3 = Se3.exp(se3r6)
+    M_SE3 = M_SE3.matrix()
+    return SE3toXYZQuaternion(M_SE3)
     
     
     
