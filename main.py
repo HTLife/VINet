@@ -149,12 +149,12 @@ class Vinet(nn.Module):
             batch_first=True)
         self.rnnIMU.cuda()
         
-        self.linear1 = nn.Linear(1024, 512)
-        self.linear2 = nn.Linear(512, 128)
-        self.linear3 = nn.Linear(128, 6)
+        self.linear1 = nn.Linear(1024, 128)
+        self.linear2 = nn.Linear(128, 6)
+        #self.linear3 = nn.Linear(128, 6)
         self.linear1.cuda()
         self.linear2.cuda()
-        self.linear3.cuda()
+        #self.linear3.cuda()
         
         
         
@@ -201,9 +201,9 @@ class Vinet(nn.Module):
         r_out, (h_n, h_c) = self.rnn(cat_out)
         l_out1 = self.linear1(r_out[:,-1,:])
         l_out2 = self.linear2(l_out1)
-        l_out3 = self.linear3(l_out2)
+        #l_out3 = self.linear3(l_out2)
 
-        return l_out3
+        return l_out2
     
     
 def model_out_to_flow_png(output):
