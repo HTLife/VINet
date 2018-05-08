@@ -39,7 +39,7 @@ class MyDataset:
         self.data_files.sort()
         
         ## relative camera pose
-        self.trajectory_relative = self.read_R6TrajFile('/vicon0/sampled_relative.csv')
+        self.trajectory_relative = self.read_R6TrajFile('/vicon0/sampled_relative_R6.csv')
         
         ## abosolute camera pose (global)
         self.trajectory_abs = self.readTrajectoryFile('/vicon0/sampled.csv')
